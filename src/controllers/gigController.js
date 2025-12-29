@@ -414,6 +414,36 @@ const applyToGig = async (req, res) => {
   }
 };
 
+// GET /api/v1/gig/:gigId/my-application
+const getMyGigApplication = async (req, res) => {
+  try {
+    const { gigId } = req.params;
+
+    const application = await GigApplication.findOne({
+      gig: gigId,
+      applicant: req.user._id,
+    })
+      .sort({ createdAt: -1 })
+      .populate("gig")
+      .populate("applicant", USER_SAFE_DATA);
+
+    if (!application) {
+      return res.status(404).json({ message: "No application found" });
+    }
+
+    res.json({
+      message: "Application fetched",
+      data: {
+        id: String(application._id),
+        status: application.status,
+        createdAt: application.createdAt ? new Date(application.createdAt).toISOString() : null,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ message: err?.message || "Failed to fetch application" });
+  }
+};
+
 // GET /api/v1/gig/:gigId/comments
 const listGigComments = async (req, res) => {
   try {
@@ -549,6 +579,7 @@ module.exports = {
   deleteGig,
   voteGig,
   applyToGig,
+  getMyGigApplication,
   listGigComments,
   addGigComment,
   toggleGigCommentLike,

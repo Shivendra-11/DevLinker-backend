@@ -4,6 +4,7 @@ const app = express();
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const http = require("http");
+const path = require("path");
 
 require("dotenv").config();
 
@@ -26,6 +27,9 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
+// Serve uploaded files (discussion images/attachments)
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+
 const authRouter = require("./routes/auth");
 const profileRouter = require("./routes/profile");
 const requestRouter = require("./routes/request");
@@ -35,6 +39,9 @@ const initializeSocket = require("./utils/socket");
 const chatRouter = require("./routes/chat");
 const projectRouter = require("./routes/project");
 const gigRouter = require("./routes/gig");
+const notificationRouter = require("./routes/notification");
+const discussRouter = require("./routes/discuss");
+const postsRouter = require("./routes/posts");
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/profile", profileRouter);
@@ -44,6 +51,12 @@ app.use("/api/v1/payment", paymentRouter);
 app.use("/api/v1/chat", chatRouter);
 app.use("/api/v1/project", projectRouter);
 app.use("/api/v1/gig", gigRouter);
+app.use("/api/v1/notifications", notificationRouter);
+app.use("/api/v1/discuss", discussRouter);
+
+// New canonical discussion API (requested shape)
+app.use("/api/v1/posts", postsRouter);
+app.use("/api/posts", postsRouter);
 
 const server = http.createServer(app);
 initializeSocket(server);

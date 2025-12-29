@@ -1,10 +1,25 @@
 const Gig = require("../models/gig");
 const GigApplication = require("../models/gigApplication");
 const User = require("../models/user");
+const ConnectionRequest = require("../models/connectionRequest");
+const Notification = require("../models/notification");
+const { Chat } = require("../models/chat");
 const { mapGigToUi } = require("./gigController");
 
 const USER_SAFE_DATA =
   "fullName photoUrl bio about skills role experience location availability github linkedin portfolio isPremium isProfileComplete";
+
+const toOwnerUi = (user) => {
+  if (!user) return null;
+  return {
+    id: String(user._id),
+    name: user.fullName,
+    avatar_url: user.photoUrl,
+    is_premium: Boolean(user.isPremium),
+    role: user.role || "",
+    location: user.location || "",
+  };
+};
 
 const toApplicationUi = (app) => {
   return {
@@ -18,6 +33,7 @@ const toApplicationUi = (app) => {
           budgetType: app.gig.budgetType,
           budgetMin: app.gig.budgetMin,
           budgetMax: app.gig.budgetMax,
+          owner: toOwnerUi(app.gig.owner),
         }
       : null,
     applicant: app.applicant
@@ -49,7 +65,7 @@ const getFreelancerDashboard = async (req, res) => {
 
     const applications = await GigApplication.find({ applicant: userId })
       .sort({ createdAt: -1 })
-      .populate("gig")
+      .populate({ path: "gig", populate: { path: "owner", select: USER_SAFE_DATA } })
       .populate("applicant", USER_SAFE_DATA);
 
     const appliedGigsIds = applications.map((a) => a.gig?._id).filter(Boolean);
@@ -122,7 +138,7 @@ const getClientDashboard = async (req, res) => {
 
     const applicationsReceived = await GigApplication.find({ gig: { $in: gigIds } })
       .sort({ createdAt: -1 })
-      .populate("gig")
+      .populate({ path: "gig", populate: { path: "owner", select: USER_SAFE_DATA } })
       .populate("applicant", USER_SAFE_DATA);
 
     const totalGigsPosted = postedGigs.length;
@@ -147,6 +163,7 @@ const getClientDashboard = async (req, res) => {
       postedGigs.slice(0, 10).map(async (g) => {
         const count = await GigApplication.countDocuments({ gig: g._id });
         return {
+          gigId: String(g._id),
           gig: g.title,
           views: g.views || 0,
           applications: count,
@@ -172,6 +189,124 @@ const getClientDashboard = async (req, res) => {
     res.json({ message: "Client dashboard fetched", data });
   } catch (err) {
     res.status(400).json({ message: err?.message || "Failed to fetch client dashboard" });
+  }
+};
+
+// POST /api/v1/gig/:gigId/applications/:applicationId/decision
+const decideGigApplication = async (req, res) => {
+  try {
+    const { gigId, applicationId } = req.params;
+    const status = String(req.body?.status || "").trim();
+
+    if (!status || !["accepted", "rejected"].includes(status)) {
+      return res.status(400).json({ message: "status must be 'accepted' or 'rejected'" });
+    }
+
+    const gig = await Gig.findById(gigId);
+    if (!gig) return res.status(404).json({ message: "Gig not found" });
+
+    if (String(gig.owner) !== String(req.user._id)) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    const application = await GigApplication.findOne({ _id: applicationId, gig: gigId });
+    if (!application) return res.status(404).json({ message: "Application not found" });
+
+    const prevStatus = application.status;
+    application.status = status;
+    await application.save();
+
+    // Side effects only when transitioning to accepted
+    if (status === "accepted" && prevStatus !== "accepted") {
+      const ownerId = req.user._id;
+      const applicantId = application.applicant;
+
+      // Ensure they are connected so chat permissions work.
+      try {
+        const existing = await ConnectionRequest.findOne({
+          $or: [
+            { fromUserId: ownerId, toUserId: applicantId },
+            { fromUserId: applicantId, toUserId: ownerId },
+          ],
+        }).select("_id status");
+
+        if (existing) {
+          if (existing.status !== "accepted") {
+            await ConnectionRequest.updateOne({ _id: existing._id }, { $set: { status: "accepted" } });
+          }
+        } else {
+          await ConnectionRequest.create({
+            fromUserId: ownerId,
+            toUserId: applicantId,
+            status: "accepted",
+          });
+        }
+      } catch {
+        // connection should not break accept flow
+      }
+
+      // Create chat thread if missing.
+      try {
+        const existingChat = await Chat.findOne({
+          participants: { $all: [ownerId, applicantId] },
+        }).select("_id");
+
+        if (!existingChat) {
+          await Chat.create({ participants: [ownerId, applicantId], messages: [] });
+        }
+      } catch {
+        // chat should not break accept flow
+      }
+
+      // Notify applicant.
+      try {
+        const gigTitle = gig.title || "your gig";
+        await Notification.create({
+          userId: applicantId,
+          type: "gig",
+          title: "Application accepted",
+          description: `Your application was accepted for: ${gigTitle}`,
+          metadata: {
+            gigId: String(gig._id),
+            applicationId: String(application._id),
+            ownerId: String(ownerId),
+          },
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    const populated = await GigApplication.findById(application._id)
+      .populate({ path: "gig", populate: { path: "owner", select: USER_SAFE_DATA } })
+      .populate("applicant", USER_SAFE_DATA);
+
+    res.json({ message: "Application updated", data: toApplicationUi(populated) });
+  } catch (err) {
+    res.status(400).json({ message: err?.message || "Failed to update application" });
+  }
+};
+
+// GET /api/v1/gig/:gigId/applications (owner-only)
+const listGigApplicationsForGig = async (req, res) => {
+  try {
+    const { gigId } = req.params;
+
+    const gig = await Gig.findById(gigId);
+    if (!gig) return res.status(404).json({ message: "Gig not found" });
+
+    if (String(gig.owner) !== String(req.user._id)) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    const applications = await GigApplication.find({ gig: gigId })
+      .sort({ createdAt: -1 })
+      .populate({ path: "gig", populate: { path: "owner", select: USER_SAFE_DATA } })
+      .populate("applicant", USER_SAFE_DATA);
+
+    res.json({ message: "Applications fetched", data: applications.map(toApplicationUi) });
+  } catch (err) {
+    res.status(400).json({ message: err?.message || "Failed to fetch applications" });
   }
 };
 
@@ -218,6 +353,8 @@ const listSavedGigs = async (req, res) => {
 module.exports = {
   getFreelancerDashboard,
   getClientDashboard,
+  decideGigApplication,
+  listGigApplicationsForGig,
   toggleSaveGig,
   listSavedGigs,
 };

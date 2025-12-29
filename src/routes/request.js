@@ -5,6 +5,7 @@ const { userAuth } = require("../middlewares/auth");
 const { checkProfileComplete } = require("../middlewares/checkProfileComplete");
 const ConnectionRequest = require("../models/connectionRequest");
 const User = require("../models/user");
+const Notification = require("../models/notification");
 
 const sendEmail = require("../utils/sendEmail");
 
@@ -17,6 +18,7 @@ requestRouter.post(
       const fromUserId = req.user._id;
       const toUserId = req.params.toUserId;
       const status = req.params.status;
+      const meta = req.body && typeof req.body === "object" ? req.body.meta || req.body.metadata || {} : {};
 
       const allowedStatus = ["ignored", "interested"];
       if (!allowedStatus.includes(status)) {
@@ -46,6 +48,25 @@ requestRouter.post(
 
         existingSameDirection.status = status;
         const data = await existingSameDirection.save();
+
+        if (status === "interested") {
+          try {
+            await Notification.create({
+              userId: toUserId,
+              type: "connection",
+              title: "New connection request",
+              description: `${req.user.fullName} is interested in connecting.`,
+              metadata: {
+                fromUserId: String(fromUserId),
+                requestId: String(data._id),
+                ...(meta && typeof meta === "object" ? meta : {}),
+              },
+            });
+          } catch {
+            // notification should never break request flow
+          }
+        }
+
         return res.json({
           message: "Connection request updated to " + status,
           data,
@@ -71,6 +92,24 @@ requestRouter.post(
       });
 
       const data = await connectionRequest.save();
+
+      if (status === "interested") {
+        try {
+          await Notification.create({
+            userId: toUserId,
+            type: "connection",
+            title: "New connection request",
+            description: `${req.user.fullName} is interested in connecting.`,
+            metadata: {
+              fromUserId: String(fromUserId),
+              requestId: String(data._id),
+              ...(meta && typeof meta === "object" ? meta : {}),
+            },
+          });
+        } catch {
+          // ignore
+        }
+      }
 
       // const emailRes = await sendEmail.run(
       //   "A new friend request from " + req.user.firstName,

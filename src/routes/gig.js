@@ -11,6 +11,7 @@ const {
   deleteGig,
   voteGig,
   applyToGig,
+  getMyGigApplication,
   listGigComments,
   addGigComment,
   toggleGigCommentLike,
@@ -20,6 +21,8 @@ const {
 const {
   getFreelancerDashboard,
   getClientDashboard,
+  decideGigApplication,
+  listGigApplicationsForGig,
   toggleSaveGig,
   listSavedGigs,
 } = require("../controllers/gigDashboardController");
@@ -45,6 +48,9 @@ gigRouter.post("/:gigId/comments/:commentId/reply", userAuth, addGigCommentReply
 
 // Applications & votes
 gigRouter.post("/:gigId/apply", userAuth, applyToGig);
+gigRouter.get("/:gigId/my-application", userAuth, getMyGigApplication);
+gigRouter.get("/:gigId/applications", userAuth, listGigApplicationsForGig);
+gigRouter.post("/:gigId/applications/:applicationId/decision", userAuth, decideGigApplication);
 gigRouter.post("/:gigId/vote", userAuth, voteGig);
 
 // Detail + update + delete
