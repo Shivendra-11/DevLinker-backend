@@ -90,13 +90,17 @@ server.on("error", (err) => {
   throw err;
 });
 
+// Render requires the service to bind to a port quickly.
+// Start listening first, then connect to the database.
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Server is successfully listening on port ${port}...`);
+});
+
 connectDB()
   .then(() => {
     console.log("Database connection established...");
-    server.listen(port, () => {
-      console.log(`Server is successfully listening on port ${port}...`);
-    });
   })
   .catch((err) => {
     console.error("Database cannot be connected!!");
+    console.error(err?.message || err);
   });
