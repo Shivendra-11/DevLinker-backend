@@ -16,6 +16,7 @@ app.use(
       if (!origin) return callback(null, true);
       if (origin.startsWith("http://localhost:")) return callback(null, true);
       if (origin.startsWith("http://127.0.0.1:")) return callback(null, true);
+      if (origin === "https://dev-linker-frontend.vercel.app") return callback(null, true);
       return callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -27,7 +28,7 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-// Serve uploaded files (discussion images/attachments)
+
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 const authRouter = require("./routes/auth");
@@ -54,7 +55,7 @@ app.use("/api/v1/gig", gigRouter);
 app.use("/api/v1/notifications", notificationRouter);
 app.use("/api/v1/discuss", discussRouter);
 
-// New canonical discussion API (requested shape)
+
 app.use("/api/v1/posts", postsRouter);
 app.use("/api/posts", postsRouter);
 
