@@ -16,8 +16,26 @@ app.use(
       if (!origin) return callback(null, true);
       if (origin.startsWith("http://localhost:")) return callback(null, true);
       if (origin.startsWith("http://127.0.0.1:")) return callback(null, true);
-      if (origin === "https://dev-linker-frontend.vercel.app") return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
+
+      // Allow-list from env (comma-separated). Example:
+      // CORS_ORIGINS=https://devlinker-frontend.vercel.app,https://dev-linker-frontend.vercel.app
+      const envList = String(process.env.CORS_ORIGINS || "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+
+      // Known production frontend domains
+      const hardcodedAllow = new Set([
+        "https://dev-linker-frontend.vercel.app",
+        "https://devlinker-frontend.vercel.app",
+      ]);
+
+      if (hardcodedAllow.has(origin)) return callback(null, true);
+      if (envList.includes(origin)) return callback(null, true);
+
+      // Don’t throw (which becomes a 500 and looks like a server crash).
+      // Instead: disallow this origin.
+      return callback(null, false);
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
