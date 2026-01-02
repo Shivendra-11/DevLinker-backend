@@ -3,6 +3,7 @@ const { userAuth } = require("../middlewares/auth");
 const { checkProfileComplete } = require("../middlewares/checkProfileComplete");
 const { Chat } = require("../models/chat");
 const ConnectionRequest = require("../models/connectionRequest");
+const { getIo, getSecretRoomId } = require("../utils/socket");
 
 const chatRouter = express.Router();
 
@@ -109,6 +110,23 @@ chatRouter.post("/with/:targetUserId/message", userAuth, checkProfileComplete, a
     await chat.save();
 
     const last = chat.messages[chat.messages.length - 1];
+
+    const io = getIo();
+    if (io) {
+      const roomId = getSecretRoomId(userId, targetUserId);
+      io.to(roomId).emit("messageReceived", {
+        chatId: String(chat._id),
+        senderId: String(userId),
+        targetUserId: String(targetUserId),
+        message: {
+          _id: String(last?._id),
+          senderId: String(userId),
+          text: last?.text ?? "",
+          createdAt: last?.createdAt ?? new Date().toISOString(),
+        },
+      });
+    }
+
     return res.json({
       data: {
         chatId: chat._id,
